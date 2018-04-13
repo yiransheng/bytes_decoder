@@ -16,8 +16,8 @@ fn _assert_is_object_safe(_: &Decode<Output = ()>) {}
 /// `Output` type to be references of this lifetime, for example produce a
 /// sub-slice of the input as output.
 ///
-/// [monadic parser combinators]: http://www.cs.nott.ac.uk/~pszgmh/monparsing.pdf
 pub trait Decode<'b> {
+    /// [monadic parser combinators]: http://www.cs.nott.ac.uk/~pszgmh/monparsing.pdf
     /// The type of value produced by a decoder
     type Output;
 
@@ -145,13 +145,11 @@ pub trait Decode<'b> {
         Alternative { a: self, b: other }
     }
     #[inline]
-    fn or_else_then<B, F>(self, f: F) -> OrElseThen<Self, F>
+    fn inverse(self) -> Inverse<Self>
     where
-        B: Decode<'b, Output = Self::Output>,
-        F: Fn(Self) -> B,
-        Self: Sized + Clone,
+        Self: Sized,
     {
-        OrElseThen { a: self, f }
+        Inverse { src: self }
     }
     #[inline]
     fn many_(self) -> Many_<Self>
@@ -425,27 +423,22 @@ where
         }
     }
 }
-
-// Lazy Alternative
 #[derive(Clone)]
-pub struct OrElseThen<A, F> {
-    a: A,
-    f: F,
+pub struct Inverse<D> {
+    src: D,
 }
-impl<'b, A, B, F> Decode<'b> for OrElseThen<A, F>
+impl<'b, D> Decode<'b> for Inverse<D>
 where
-    A: Decode<'b> + Clone,
-    B: Decode<'b, Output = A::Output>,
-    F: Fn(A) -> B,
+    D: Decode<'b>,
 {
-    type Output = A::Output;
+    type Output = ();
 
     #[inline]
-    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], A::Output), DecodeError> {
-        let f = &self.f;
-        match self.a.decode(bytes) {
-            Err(DecodeError::Fail) => f(self.a.clone()).decode(bytes),
-            x @ _ => x,
+    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
+        match self.src.decode(bytes) {
+            Err(DecodeError::Incomplete) => Err(DecodeError::Incomplete),
+            Ok(_) => Err(DecodeError::Fail),
+            _ => Ok((bytes, ())),
         }
     }
 }
@@ -543,14 +536,11 @@ impl<'b, D: Decode<'b>> Decode<'b> for Repeat_<D> {
     }
 }
 
-impl<'b, D: Decode<'b>> Decode<'b> for Option<D> {
+impl<'b, D: Decode<'b>> Decode<'b> for Box<D> {
     type Output = D::Output;
 
     #[inline]
     fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
-        match self {
-            &Some(ref inner) => inner.decode(bytes),
-            _ => Err(DecodeError::Fail),
-        }
+        (*self).decode(bytes)
     }
 }
