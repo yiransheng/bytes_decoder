@@ -1,0 +1,6 @@
+[package]
+name = "bytes_decoder"
+version = "0.1.0"
+authors = ["Yiran Sheng <shengyiran@gmail.com>"]
+
+[dependencies]
