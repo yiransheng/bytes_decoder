@@ -535,12 +535,3 @@ impl<'b, D: Decode<'b>> Decode<'b> for Repeat_<D> {
         Ok((bytes, ()))
     }
 }
-
-impl<'b, D: Decode<'b>> Decode<'b> for Box<D> {
-    type Output = D::Output;
-
-    #[inline]
-    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
-        (*self).decode(bytes)
-    }
-}
