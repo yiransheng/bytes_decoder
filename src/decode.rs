@@ -38,7 +38,7 @@ pub trait Decode<'b> {
 
     /// Similar to [`decode_`], but fails if input bytes is not consumed entirely.
     #[inline]
-    fn decode_all<'a>(&'a self, bytes: &'b [u8]) -> Result<Self::Output, DecodeError> {
+    fn decode_exact<'a>(&'a self, bytes: &'b [u8]) -> Result<Self::Output, DecodeError> {
         let (remainder, out) = self.decode(bytes)?;
         if remainder.len() == 0 {
             Ok(out)
@@ -46,9 +46,16 @@ pub trait Decode<'b> {
             Err(DecodeError::Fail)
         }
     }
+    #[inline]
+    fn void(self) -> Void<Self>
+    where
+        Self: Sized,
+    {
+        Void { src: self }
+    }
 
     #[inline]
-    fn count_bytes(self) -> BytesConsumed<Self>
+    fn bytes_consumed(self) -> BytesConsumed<Self>
     where
         Self: Sized,
     {
@@ -138,13 +145,13 @@ pub trait Decode<'b> {
         Alternative { a: self, b: other }
     }
     #[inline]
-    fn or_else<B, F>(self, f: F) -> OrElse<Self, F>
+    fn or_else_then<B, F>(self, f: F) -> OrElseThen<Self, F>
     where
         B: Decode<'b, Output = Self::Output>,
-        F: Fn() -> B,
-        Self: Sized,
+        F: Fn(Self) -> B,
+        Self: Sized + Clone,
     {
-        OrElse { a: self, f }
+        OrElseThen { a: self, f }
     }
     #[inline]
     fn many_(self) -> Many_<Self>
@@ -173,6 +180,21 @@ pub trait Decode<'b> {
         Self: Sized,
     {
         Repeat_ { one: self, n }
+    }
+}
+
+#[derive(Clone)]
+pub struct Void<D> {
+    src: D,
+}
+impl<'b, D: Decode<'b>> Decode<'b> for Void<D> {
+    type Output = ();
+
+    #[inline]
+    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], ()), DecodeError> {
+        let (remainder, _) = self.src.decode(bytes)?;
+
+        Ok((remainder, ()))
     }
 }
 
@@ -406,15 +428,15 @@ where
 
 // Lazy Alternative
 #[derive(Clone)]
-pub struct OrElse<A, F> {
+pub struct OrElseThen<A, F> {
     a: A,
     f: F,
 }
-impl<'b, A, B, F> Decode<'b> for OrElse<A, F>
+impl<'b, A, B, F> Decode<'b> for OrElseThen<A, F>
 where
-    A: Decode<'b>,
+    A: Decode<'b> + Clone,
     B: Decode<'b, Output = A::Output>,
-    F: Fn() -> B,
+    F: Fn(A) -> B,
 {
     type Output = A::Output;
 
@@ -422,7 +444,7 @@ where
     fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], A::Output), DecodeError> {
         let f = &self.f;
         match self.a.decode(bytes) {
-            Err(DecodeError::Fail) => f().decode(bytes),
+            Err(DecodeError::Fail) => f(self.a.clone()).decode(bytes),
             x @ _ => x,
         }
     }
@@ -444,7 +466,7 @@ impl<'b, D: Decode<'b>> Decode<'b> for Many_<D> {
                     bytes = remainder;
                 }
                 Err(DecodeError::Incomplete) => return Err(DecodeError::Incomplete),
-                _ => return Ok((bytes, ())),
+                Err(DecodeError::Fail) => return Ok((bytes, ())),
             }
         }
     }
@@ -518,5 +540,17 @@ impl<'b, D: Decode<'b>> Decode<'b> for Repeat_<D> {
             }
         }
         Ok((bytes, ()))
+    }
+}
+
+impl<'b, D: Decode<'b>> Decode<'b> for Option<D> {
+    type Output = D::Output;
+
+    #[inline]
+    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
+        match self {
+            &Some(ref inner) => inner.decode(bytes),
+            _ => Err(DecodeError::Fail),
+        }
     }
 }
