@@ -71,7 +71,7 @@ pub trait DecodeBytes<'b> {
     /// use ::bytes_decoder::decode::*;
     //
     /// let input: &'static [u8] = &b"hello"[..];
-    /// let pass = input.filter(|_| true);
+    /// let pass = input.filter(|_| true).clone();
     ///
     /// assert_eq!(pass.decode_all(&b"hello"[..]), Ok("hello".as_bytes()));
     ///
