@@ -1,3 +1,6 @@
+use std::default::Default;
+use std::marker::PhantomData;
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum DecodeError {
     Incomplete,
@@ -289,6 +292,19 @@ pub trait Decode<'b> {
         Self: Sized,
     {
         Many { one: self }
+    }
+    #[inline]
+    fn reduce_many<A, F>(self, f: F) -> ReduceMany<Self, A, F>
+    where
+        Self: Sized,
+        A: Default,
+        F: Fn(A, Self::Output) -> A,
+    {
+        ReduceMany {
+            one: self,
+            f,
+            __marker: PhantomData,
+        }
     }
     #[inline]
     fn repeat(self, n: u64) -> Repeat<Self>
@@ -610,6 +626,38 @@ impl<'b, D: Decode<'b>> Decode<'b> for Many<D> {
         }
     }
 }
+
+#[derive(Clone)]
+pub struct ReduceMany<D, A, F> {
+    one: D,
+    f: F,
+    __marker: PhantomData<A>,
+}
+impl<'b, A, D, F> Decode<'b> for ReduceMany<D, A, F>
+where
+    D: Decode<'b>,
+    F: Fn(A, D::Output) -> A,
+    A: Default,
+{
+    type Output = A;
+
+    #[inline]
+    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
+        let mut result = A::default();
+        let mut bytes = bytes;
+        let f = &self.f;
+        loop {
+            match self.one.decode(bytes) {
+                Ok((remainder, v)) => {
+                    result = f(result, v);
+                    bytes = remainder;
+                }
+                _ => return Ok((bytes, result)),
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Repeat<D> {
     one: D,
