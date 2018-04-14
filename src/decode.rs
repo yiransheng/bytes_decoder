@@ -178,6 +178,24 @@ pub trait Decode<'b> {
     {
         Map { src: self, f }
     }
+
+    /// Create a Decode that parses the slice it consumed with a given closure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input = "Hello".as_bytes();
+    ///
+    /// let decoder = ByteAny
+    ///     .repeat(5)
+    ///     .parse_slice(|s| String::from_utf8(s.to_vec()).unwrap());
+    ///
+    /// assert_eq!(decoder.decode_exact(input), Ok("Hello".to_string()));
+    ///
+    /// ```
     #[inline]
     fn parse_slice<B, F>(self, f: F) -> ParseSlice<Self, F>
     where
@@ -186,6 +204,24 @@ pub trait Decode<'b> {
     {
         ParseSlice { src: self, f }
     }
+
+    /// Create a Decode that "returns" the slice it consumed in a zero-copy manner.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input = "Hello".as_bytes();
+    ///
+    /// let decoder = ByteAny
+    ///     .repeat(5)
+    ///     .to_consumed_slice();
+    ///
+    /// assert_eq!(decoder.decode_exact(input), Ok("Hello".as_bytes()));
+    ///
+    /// ```
     #[inline]
     fn to_consumed_slice(self) -> ToSlice<Self>
     where
@@ -193,6 +229,7 @@ pub trait Decode<'b> {
     {
         ToSlice { src: self }
     }
+
     #[inline]
     fn and_then<B, F>(self, f: F) -> FlatMap<Self, F>
     where
