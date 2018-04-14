@@ -458,8 +458,7 @@ impl<'b, D: Decode<'b>> Decode<'b> for Many_<D> {
                 Ok((remainder, _)) => {
                     bytes = remainder;
                 }
-                Err(DecodeError::Incomplete) => return Err(DecodeError::Incomplete),
-                Err(DecodeError::Fail) => return Ok((bytes, ())),
+                _ => return Ok((bytes, ())),
             }
         }
     }
@@ -481,7 +480,6 @@ impl<'b, D: Decode<'b>> Decode<'b> for Many<D> {
                     results.push(v);
                     bytes = remainder;
                 }
-                Err(DecodeError::Incomplete) => return Err(DecodeError::Incomplete),
                 _ => return Ok((bytes, results)),
             }
         }
@@ -533,5 +531,17 @@ impl<'b, D: Decode<'b>> Decode<'b> for Repeat_<D> {
             }
         }
         Ok((bytes, ()))
+    }
+}
+
+impl<'b, D> Decode<'b> for Box<D>
+where
+    D: Decode<'b> + ?Sized,
+{
+    type Output = D::Output;
+
+    #[inline]
+    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
+        (**self).decode(bytes)
     }
 }
