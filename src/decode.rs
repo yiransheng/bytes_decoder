@@ -25,11 +25,37 @@ pub trait Decode<'b> {
     ///
     /// # Examples
     ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input = "hello world!".as_bytes();
+    /// let decoder = BytesExact::new("hello".as_bytes());
+    ///
+    /// assert!(decoder.decode(input).is_ok());
+    ///
+    /// ```
     ///
     /// #Errors
     fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError>;
 
     /// Decode bytes, discard remainder and only return [Ok(`Self::Output`)] if successful.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input = "hello world!".as_bytes();
+    /// let decoder = BytesExact::new("hello".as_bytes());
+    ///
+    /// assert_eq!(
+    ///     decoder.decode_(input),
+    ///     Ok("hello".as_bytes())
+    /// );
+    ///
+    /// ```
     #[inline]
     fn decode_<'a>(&'a self, bytes: &'b [u8]) -> Result<Self::Output, DecodeError> {
         let (_, out) = self.decode(bytes)?;
@@ -37,6 +63,22 @@ pub trait Decode<'b> {
     }
 
     /// Similar to [`decode_`], but fails if input bytes is not consumed entirely.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input = "hello world!".as_bytes();
+    /// let input_exact = "hello".as_bytes();
+    ///
+    /// let decoder = BytesExact::new("hello".as_bytes());
+    ///
+    /// assert!(decoder.decode_exact(input).is_err());
+    /// assert!(decoder.decode_exact(input_exact).is_ok());
+    ///
+    /// ```
     #[inline]
     fn decode_exact<'a>(&'a self, bytes: &'b [u8]) -> Result<Self::Output, DecodeError> {
         let (remainder, out) = self.decode(bytes)?;
@@ -46,6 +88,23 @@ pub trait Decode<'b> {
             Err(DecodeError::Fail)
         }
     }
+
+    /// Creates a Decode behaves identical to this one, but discards Output, and returns Ok(())
+    /// if successful.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input_exact = "hello".as_bytes();
+    ///
+    /// let decoder = BytesExact::new("hello".as_bytes()).void();
+    ///
+    /// assert_eq!(decoder.decode_exact(input_exact), Ok(()));
+    ///
+    /// ```
     #[inline]
     fn void(self) -> Void<Self>
     where
@@ -54,6 +113,21 @@ pub trait Decode<'b> {
         Void { src: self }
     }
 
+    /// Creates a Decode behaves identical to this one, but reports number of bytes consumed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input_exact = "hello".as_bytes();
+    ///
+    /// let decoder = BytesExact::new("hello".as_bytes()).bytes_consumed();
+    ///
+    /// assert_eq!(decoder.decode_exact(input_exact), Ok(5));
+    ///
+    /// ```
     #[inline]
     fn bytes_consumed(self) -> BytesConsumed<Self>
     where
@@ -69,11 +143,25 @@ pub trait Decode<'b> {
     {
         FilterMap { src: self, f }
     }
+
     /// Create a Decode object behaves like self if output evaluated by supplied closure is
     /// true, otherwise fails.
     ///
     /// # Examples
     ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input = "Hello".as_bytes();
+    ///
+    /// let decoder = ByteAny
+    ///     .repeat(5)
+    ///     .filter(|bs| bs.len() == 4);
+    ///
+    /// assert!(decoder.decode_exact(input).is_err());
+    ///
+    /// ```
     #[inline]
     fn filter<F>(self, f: F) -> Filter<Self, F>
     where
