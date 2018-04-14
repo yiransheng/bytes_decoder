@@ -21,7 +21,7 @@ mod tests {
         //
         // (when evalulating `impl Decode<'b, Output=()>`)
 
-        // Grammar
+        // Replacement Grammar
         //
         // S0 -> 2
         // S1 -> 2 | [ S0* ]
@@ -45,28 +45,14 @@ mod tests {
                 .and_(Byte::new(b']')))
         }
 
-        type Boxed<'b> = Box<Decode<'b, Output = ()>>;
-
-        // um... use trait obj instead
-        fn next_level_boxed<'b>(prev_level: Boxed<'static>) -> Boxed<'static> {
-            let term = Byte::new(b'2').void();
-
-            let ret = term.or(Byte::new(b'[')
-                .and(prev_level.many_())
-                .and_(Byte::new(b']')));
-
-            Box::new(ret)
-        }
-
         let decoder = Byte::new(b'2').void(); // S0
-        let mut decoder: Boxed<'static> = Box::new(decoder);
+        let decoder = next_level(decoder); // S1
+        let decoder = next_level(decoder); // S2
+        let decoder = next_level(decoder); // S3
+        let decoder = next_level(decoder); // S4
+        let decoder = next_level(decoder); // S5
 
-        for _ in 0..4096 {
-            decoder = next_level_boxed(decoder);
-        }
-
-        // let ok_input = "[2[[2]22]]".as_bytes();
-        let ok_input = "[[[[[[[[[2[[2]22]]]]]]]]]]".as_bytes();
+        let ok_input = "[2[[2]22]]".as_bytes();
         let partial_input = "[[22[2][]]".as_bytes();
         let bad_input = "[2][22]".as_bytes();
 
@@ -79,61 +65,41 @@ mod tests {
     }
 
     #[test]
-    fn test_using() {
-        fn decode_using<'b>(
-            one: &Decode<'b, Output = ()>,
-            open: &Decode<'b, Output = ()>,
-            close: &Decode<'b, Output = ()>,
-            bytes: &'b [u8],
-        ) -> Result<(&'b [u8], ()), DecodeError> {
-            let result = one.decode(bytes);
+    fn test_nested_trait_obj() {
+        // Now use trait objects instead..
 
-            match result {
-                x @ Ok(_) => x,
-                _ => {
-                    let (remainder, _) = open.decode(bytes)?;
-                    let mut bytes = remainder;
-                    loop {
-                        match decode_using(one, open, close, bytes) {
-                            Ok((remainder, _)) => {
-                                bytes = remainder;
-                            }
-                            _ => break,
-                        }
-                    }
-                    close.decode(bytes)
-                }
-            }
-        }
-        fn decode_exact_using<'b>(
-            one: &Decode<'b, Output = ()>,
-            open: &Decode<'b, Output = ()>,
-            close: &Decode<'b, Output = ()>,
-            bytes: &'b [u8],
-        ) -> Result<(&'b [u8], ()), DecodeError> {
-            let (remainder, _) = decode_using(one, open, close, bytes)?;
+        type BoxDecode<'b> = Box<Decode<'b, Output = ()>>;
 
-            if remainder.len() > 0 {
-                Err(DecodeError::Fail)
-            } else {
-                Ok((remainder, ()))
-            }
+        fn next_level_boxed<D: 'static + Decode<'static, Output = ()>>(
+            term: D,
+            prev_level: BoxDecode<'static>,
+        ) -> BoxDecode<'static> {
+            let ret = term.or(Byte::new(b'[')
+                .and(prev_level.many_())
+                .and_(Byte::new(b']')));
+
+            Box::new(ret)
         }
 
-        let two = Byte::new(b'2').void();
-        let open = Byte::new(b'[').void();
-        let close = Byte::new(b']').void();
+        let base = Byte::new(b'2').void();
+        // explicity type anotation is necessary to erase the type
+        let mut decoder: BoxDecode<'static> = Box::new(base.clone());
+
+        // sky is the limit!
+        for _ in 0..4096 {
+            decoder = next_level_boxed(base.clone(), decoder);
+        }
+        drop(base);
 
         let ok_input = "[[[[[[[[[2[[2]22]]]]]]]]]]".as_bytes();
+        let partial_input = "[[22[2][]]".as_bytes();
         let bad_input = "[2][22]".as_bytes();
 
+        assert_eq!(decoder.decode_exact(ok_input), Ok(()));
         assert_eq!(
-            decode_exact_using(&two, &open, &close, ok_input).is_ok(),
-            true
+            decoder.decode_exact(partial_input),
+            Err(DecodeError::Incomplete)
         );
-        assert_eq!(
-            decode_exact_using(&two, &open, &close, bad_input),
-            Err(DecodeError::Fail)
-        );
+        assert_eq!(decoder.decode_exact(bad_input), Err(DecodeError::Fail));
     }
 }
