@@ -174,6 +174,30 @@ pub trait Decode<'b> {
     {
         Filter { src: self, f }
     }
+
+    /// Create a Decode that maps current output with a closure (consumes Output).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    /// let input = "Hello".as_bytes();
+    ///
+    /// let decoder = ByteAny
+    ///     .repeat(5)
+    ///     .map::<Vec<u8>, _>(|mut xs| {
+    ///         xs.reverse();
+    ///         xs
+    ///     });
+    ///
+    /// assert_eq!(
+    ///     decoder.decode_exact(input),
+    ///     Ok(b"olleH".to_vec())
+    /// );
+    ///
+    /// ```
     #[inline]
     fn map<B, F>(self, f: F) -> Map<Self, F>
     where
@@ -266,6 +290,7 @@ pub trait Decode<'b> {
     {
         AndNext_ { fst: self, snd }
     }
+
     #[inline]
     fn or<B: Decode<'b, Output = Self::Output>>(self, other: B) -> Alternative<Self, B>
     where
@@ -273,6 +298,53 @@ pub trait Decode<'b> {
     {
         Alternative { a: self, b: other }
     }
+
+    /// Create a Decode (name if d_next), with the current one as a base decoder. If current
+    /// decoder succeeds returns output, otherwise apply a given closure to `d_next` and use
+    /// the resulting decoder.
+    ///
+    /// Requires `Self: Clone`.
+    ///
+    /// Imagine a decoder for nested parentheses (but not emtpy bytes).
+    ///
+    /// ```ignore
+    ///
+    /// let open = Byte::new(b'(');
+    /// let close = Byte::new(b')');
+    ///
+    /// LHS = BytesExact::new(b"()")
+    ///         .or( open.and(LHS).and_(close) );
+    ///
+    /// ```
+    ///
+    /// `LHS` is used in combinators before it is created. Rust is not Haskell
+    /// with lazy evaluation, ideas like this is painful to express.
+    ///
+    /// `or_else_recur` provides a way:
+    ///
+    /// ```
+    /// use ::bytes_decoder::*;
+    /// use ::bytes_decoder::primitives::*;
+    ///
+    ///
+    /// let parens = BytesExact::new(b"()").or_else_recur(|parens| {
+    ///    let open = Byte::new(b'(');
+    ///    let close = Byte::new(b')');
+    ///
+    ///    open
+    ///      .and(parens)
+    ///      .and_(close)
+    /// });
+    ///
+    /// let input = "(((())))".as_bytes();
+    ///
+    /// assert!(parens.decode_exact(input).is_ok());
+    ///
+    /// ```
+    ///
+    /// Note: this is achieved using `Rc` and trait object, I have struggled
+    /// quite a lot ot get a working version in safe rust. One day, I might
+    /// find a more efficient solution with contraints present.
     #[inline]
     fn or_else_recur<E: 'static, F: 'static>(self, f: F) -> OrElseRecur<Self, E, F>
     where
