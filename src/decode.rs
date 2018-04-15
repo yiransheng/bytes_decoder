@@ -1,5 +1,7 @@
 use std::default::Default;
 use std::marker::PhantomData;
+use std::mem;
+use std::rc::{Rc, Weak};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum DecodeError {
@@ -273,6 +275,21 @@ pub trait Decode<'b> {
         Alternative { a: self, b: other }
     }
     #[inline]
+    fn or_else_recur<E: 'static, F: 'static>(self, f: F) -> OrElseRecur<Self, E, F>
+    where
+        E: 'static + Decode<'b, Output = Self::Output>,
+        F: 'static + Fn(RecurDecode<'b, Self::Output>) -> E,
+        Self: Sized + Clone,
+        Self: 'static,
+    {
+        OrElseRecur {
+            base: self,
+            f: f,
+            __marker: PhantomData,
+        }
+    }
+
+    #[inline]
     fn inverse(self) -> Inverse<Self>
     where
         Self: Sized,
@@ -322,7 +339,7 @@ pub trait Decode<'b> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Void<D> {
     src: D,
 }
@@ -337,7 +354,7 @@ impl<'b, D: Decode<'b>> Decode<'b> for Void<D> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct BytesConsumed<D> {
     src: D,
 }
@@ -353,7 +370,7 @@ impl<'b, D: Decode<'b>> Decode<'b> for BytesConsumed<D> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Filter<D, F> {
     src: D,
     f: F,
@@ -379,7 +396,7 @@ where
 }
 
 // Functor
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Map<D, F> {
     src: D,
     f: F,
@@ -400,7 +417,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct FilterMap<D, F> {
     src: D,
     f: F,
@@ -424,7 +441,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct ToSlice<D> {
     src: D,
 }
@@ -441,7 +458,7 @@ impl<'b, D: Decode<'b>> Decode<'b> for ToSlice<D> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct ParseSlice<D, F> {
     src: D,
     f: F,
@@ -464,7 +481,7 @@ where
 }
 
 // Monad
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct FlatMap<D, F> {
     src: D,
     f: F,
@@ -486,7 +503,7 @@ where
         Ok((next_remainder, o))
     }
 }
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct FlatMap_<D, F> {
     src: D,
     f: F,
@@ -510,7 +527,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct AndNext<A, B> {
     fst: A,
     snd: B,
@@ -525,7 +542,7 @@ impl<'b, A: Decode<'b>, B: Decode<'b>> Decode<'b> for AndNext<A, B> {
         self.snd.decode(remainder)
     }
 }
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct AndNext_<A, B> {
     fst: A,
     snd: B,
@@ -544,7 +561,7 @@ impl<'b, A: Decode<'b>, B: Decode<'b>> Decode<'b> for AndNext_<A, B> {
 }
 
 // Alternative
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Alternative<A, B> {
     a: A,
     b: B,
@@ -564,7 +581,7 @@ where
         }
     }
 }
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Inverse<D> {
     src: D,
 }
@@ -584,7 +601,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Many_<D> {
     one: D,
 }
@@ -604,7 +621,7 @@ impl<'b, D: Decode<'b>> Decode<'b> for Many_<D> {
         }
     }
 }
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Many<D> {
     one: D,
 }
@@ -627,7 +644,7 @@ impl<'b, D: Decode<'b>> Decode<'b> for Many<D> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct ReduceMany<D, A, F> {
     one: D,
     f: F,
@@ -658,7 +675,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Repeat<D> {
     one: D,
     n: u64,
@@ -683,7 +700,7 @@ impl<'b, D: Decode<'b>> Decode<'b> for Repeat<D> {
         Ok((bytes, results))
     }
 }
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Repeat_<D> {
     one: D,
     n: u64,
@@ -716,5 +733,76 @@ where
     #[inline]
     fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
         (**self).decode(bytes)
+    }
+}
+
+impl<'b, O> Decode<'b> for fn(&'b [u8]) -> Result<(&'b [u8], O), DecodeError> {
+    type Output = O;
+
+    #[inline]
+    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
+        self(bytes)
+    }
+}
+
+#[derive(Clone)]
+pub struct RecurDecode<'b, O> {
+    inner: Rc<Decode<'b, Output = O>>,
+}
+
+impl<'b, O> Decode<'b> for RecurDecode<'b, O> {
+    type Output = O;
+
+    #[inline]
+    fn decode<'s>(&'s self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
+        self.inner.decode(bytes)
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct OrElseRecur<D, E, F> {
+    base: D,
+    f: F,
+    __marker: PhantomData<E>,
+}
+
+impl<'b, D: 'static, E: 'static, F: 'static> Decode<'b> for OrElseRecur<D, E, F>
+where
+    D: Decode<'b>,
+    E: Decode<'b, Output = D::Output>,
+    F: Fn(RecurDecode<'b, D::Output>) -> E,
+    Self: Clone,
+{
+    type Output = D::Output;
+
+    #[inline]
+    fn decode<'s>(&'s self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
+        Self::decode_recur(Rc::new(self.clone()), bytes)
+    }
+}
+
+impl<'b, D: 'static, E: 'static, F: 'static> OrElseRecur<D, E, F>
+where
+    D: Decode<'b>,
+    E: Decode<'b, Output = D::Output>,
+    F: Fn(RecurDecode<'b, D::Output>) -> E,
+    Self: Clone,
+{
+    #[inline]
+    fn decode_recur(
+        recur: Rc<Self>,
+        bytes: &'b [u8],
+    ) -> Result<(&'b [u8], D::Output), DecodeError> {
+        let result = recur.base.decode(bytes);
+
+        match result {
+            x @ Ok(_) => return x,
+            e @ Err(DecodeError::Incomplete) => return e,
+            _ => {}
+        }
+        let next = recur.clone();
+        let next = RecurDecode { inner: next };
+
+        (recur.f)(next).decode(bytes)
     }
 }

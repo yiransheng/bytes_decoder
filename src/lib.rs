@@ -33,7 +33,6 @@ mod tests {
 
         // calling this more than a handful of times will blow up..
         // (S9 killed my computer... rustc crashed)
-        #[allow(dead_code)]
         fn next_level<'b, D>(prev_level: D) -> impl Decode<'b, Output = ()>
         where
             D: Decode<'b, Output = ()>,
@@ -90,6 +89,31 @@ mod tests {
             decoder = next_level_boxed(base.clone(), decoder);
         }
         drop(base);
+
+        let ok_input = "[[[[[[[[[2[[2]22]]]]]]]]]]".as_bytes();
+        let partial_input = "[[22[2][]]".as_bytes();
+        let bad_input = "[2][22]".as_bytes();
+
+        assert_eq!(decoder.decode_exact(ok_input), Ok(()));
+        assert_eq!(
+            decoder.decode_exact(partial_input),
+            Err(DecodeError::Incomplete)
+        );
+        assert_eq!(decoder.decode_exact(bad_input), Err(DecodeError::Fail));
+    }
+
+    #[test]
+    fn test_recurr() {
+        // finally solved recursion problem!
+        let base = Byte::new(b'2').void();
+
+        // compared with two previous attempts, this looks much cleaner
+        // and no need by specifiying max depth (still bounded by stackoverflow)
+        let decoder = base.or_else_recur(move |prev_level| {
+            base.or(Byte::new(b'[')
+                .and(prev_level.many_())
+                .and_(Byte::new(b']')))
+        });
 
         let ok_input = "[[[[[[[[[2[[2]22]]]]]]]]]]".as_bytes();
         let partial_input = "[[22[2][]]".as_bytes();
