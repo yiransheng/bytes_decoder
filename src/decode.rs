@@ -1,7 +1,6 @@
 use std::default::Default;
 use std::marker::PhantomData;
-use std::mem;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum DecodeError {
