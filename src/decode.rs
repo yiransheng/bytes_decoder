@@ -406,6 +406,20 @@ pub trait Decode<'b> {
     {
         Repeat_ { one: self, n }
     }
+    #[inline]
+    fn reduce_repeat<A, F>(self, n: u64, f: F) -> ReduceRepeat<Self, A, F>
+    where
+        Self: Sized,
+        A: Default,
+        F: Fn(A, Self::Output) -> A,
+    {
+        ReduceRepeat {
+            one: self,
+            f,
+            n,
+            __marker: PhantomData,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -790,6 +804,40 @@ impl<'b, D: Decode<'b>> Decode<'b> for Repeat_<D> {
             }
         }
         Ok((bytes, ()))
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct ReduceRepeat<D, A, F> {
+    one: D,
+    f: F,
+    n: u64,
+    __marker: PhantomData<A>,
+}
+impl<'b, A, D, F> Decode<'b> for ReduceRepeat<D, A, F>
+where
+    D: Decode<'b>,
+    F: Fn(A, D::Output) -> A,
+    A: Default,
+{
+    type Output = A;
+
+    #[inline]
+    fn decode<'a>(&'a self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
+        let mut result = A::default();
+        let mut bytes = bytes;
+        let f = &self.f;
+        for _ in 0..self.n {
+            match self.one.decode(bytes) {
+                Ok((remainder, v)) => {
+                    result = f(result, v);
+                    bytes = remainder;
+                }
+                Err(DecodeError::Incomplete) => return Err(DecodeError::Incomplete),
+                _ => return Err(DecodeError::Fail),
+            }
+        }
+        Ok((bytes, result))
     }
 }
 
