@@ -303,8 +303,6 @@ pub trait Decode<'b> {
     /// decoder succeeds returns output, otherwise apply a given closure to `d_next` and use
     /// the resulting decoder.
     ///
-    /// Requires `Self: Clone`.
-    ///
     /// Imagine a decoder for nested parentheses (but not emtpy bytes).
     ///
     /// ```ignore
@@ -350,7 +348,7 @@ pub trait Decode<'b> {
     where
         E: 'static + Decode<'b, Output = Self::Output>,
         F: 'static + Fn(RecurDecode<'b, Self::Output>) -> E,
-        Self: Sized + Clone,
+        Self: Sized,
         Self: 'static,
     {
         OrElseRecur {
