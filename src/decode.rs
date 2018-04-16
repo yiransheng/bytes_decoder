@@ -848,32 +848,33 @@ where
 
     #[inline]
     fn decode<'s>(&'s self, bytes: &'b [u8]) -> Result<(&'b [u8], Self::Output), DecodeError> {
-        Self::decode_recur(Rc::new(self.clone()), bytes)
+        let recur = RecurDecode {
+            inner: Rc::new(self.clone()),
+        };
+        let recur = (self.f)(recur);
+        Self::decode_impl(&self.base, recur, bytes)
     }
 }
 
-impl<'b, D: 'static, E: 'static, F: 'static> OrElseRecur<D, E, F>
+impl<'b, D, E, F> OrElseRecur<D, E, F>
 where
     D: Decode<'b>,
     E: Decode<'b, Output = D::Output>,
-    F: Fn(RecurDecode<'b, D::Output>) -> E,
-    Self: Clone,
 {
     #[inline]
-    fn decode_recur(
-        recur: Rc<Self>,
+    fn decode_impl(
+        base: &D,
+        recur: E,
         bytes: &'b [u8],
     ) -> Result<(&'b [u8], D::Output), DecodeError> {
-        let result = recur.base.decode(bytes);
+        let result = base.decode(bytes);
 
         match result {
             x @ Ok(_) => return x,
             e @ Err(DecodeError::Incomplete) => return e,
             _ => {}
         }
-        let next = recur.clone();
-        let next = RecurDecode { inner: next };
 
-        (recur.f)(next).decode(bytes)
+        recur.decode(bytes)
     }
 }
